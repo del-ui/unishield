@@ -3,6 +3,11 @@ import random
 import pandas as pd
 import streamlit as st
 
+from incident_engine import (
+    UserBehavior,
+    generate_incident_response
+)
+
 from unishield_ai import (
     generate_normal_activity,
     generate_credential_attack,
@@ -30,6 +35,9 @@ st.set_page_config(
 
 if "events" not in st.session_state:
     st.session_state.events = []
+
+if "users" not in st.session_state:
+    st.session_state.users = {}
 
 if "running" not in st.session_state:
     st.session_state.running = False
@@ -59,6 +67,104 @@ def run_event(event):
         st.session_state.model,
         st.session_state.scaler
     )
+
+    result["timestamp"] = time.strftime(
+        "%H:%M:%S"
+    )
+
+    result["failed_logins"] = (
+        event["failed_logins"]
+    )
+
+    result["downloads_mb"] = (
+        event["downloads_mb"]
+    )
+
+    result["resources_accessed"] = (
+        event["resources_accessed"]
+    )
+
+    result["sensitive_resources"] = (
+        event["sensitive_resources"]
+    )
+
+    result["geo_distance_km"] = (
+        event["geo_distance_km"]
+    )
+
+    result["device_changed"] = (
+        event["device_changed"]
+    )
+
+    # ----------------------------------------
+    # BEHAVIOURAL INTELLIGENCE
+    # ----------------------------------------
+
+    incident, response = (
+        update_user_behavior(
+            event,
+            result
+        )
+    )
+
+    result["behavior_risk"] = (
+        incident["behavior_risk"]
+    )
+
+    result["attack_detected"] = (
+        incident["attack_detected"]
+    )
+
+    result["incident_level"] = (
+        incident["level"]
+    )
+
+    result["incident_reasons"] = (
+        incident["reasons"]
+    )
+
+    result["incident_response"] = (
+        response
+    )
+
+    st.session_state.events.insert(
+        0,
+        result
+    )
+
+    st.session_state.events = (
+        st.session_state.events[:100]
+    )
+
+def update_user_behavior(
+    event,
+    ai_result
+):
+
+    user_id = event["user_id"]
+
+    if user_id not in st.session_state.users:
+
+        st.session_state.users[user_id] = (
+            UserBehavior(user_id)
+        )
+
+    behavior = st.session_state.users[user_id]
+
+    behavior.add_event(
+        event,
+        ai_result
+    )
+
+    incident = (
+        behavior.detect_attack_pattern()
+    )
+
+    response = generate_incident_response(
+        incident
+    )
+
+    return incident, response
 
     result["timestamp"] = time.strftime(
         "%H:%M:%S"
@@ -446,6 +552,136 @@ if events:
     st.info(
         latest["response"]
     )
+
+# ============================================================
+# BEHAVIOURAL INCIDENT
+# ============================================================
+
+if events:
+
+    st.divider()
+
+    st.subheader(
+        "🧬 Behavioural Incident Analysis"
+    )
+
+    # The latest event is guaranteed to exist
+    # because we are inside: if events:
+
+    latest = events[0]
+
+    incident_user = latest["user_id"]
+
+    # Check whether UniShield has behavioural
+    # history for this user.
+
+    if incident_user in st.session_state.users:
+
+        behavior = st.session_state.users[
+            incident_user
+        ]
+
+        # Analyze the accumulated behaviour
+        incident = behavior.detect_attack_pattern()
+
+        # Generate recommended response
+        response = generate_incident_response(
+            incident
+        )
+
+        # ----------------------------------------
+        # INCIDENT SUMMARY
+        # ----------------------------------------
+
+        x1, x2, x3 = st.columns(3)
+
+        with x1:
+
+            st.metric(
+                "Behaviour Risk",
+                f'{incident["behavior_risk"]}/100'
+            )
+
+        with x2:
+
+            st.metric(
+                "Incident Level",
+                incident["level"]
+            )
+
+        with x3:
+
+            if incident["attack_detected"]:
+
+                status = "🚨 ATTACK DETECTED"
+
+            else:
+
+                status = "🟢 NO ATTACK"
+
+            st.metric(
+                "Status",
+                status
+            )
+
+        # ----------------------------------------
+        # BEHAVIOURAL INDICATORS
+        # ----------------------------------------
+
+        st.write(
+            "### 🔎 Behavioural Indicators"
+        )
+
+        if incident["reasons"]:
+
+            for reason in incident["reasons"]:
+
+                st.write(
+                    "•",
+                    reason
+                )
+
+        else:
+
+            st.success(
+                "No significant behavioural "
+                "pattern detected."
+            )
+
+        # ----------------------------------------
+        # RESPONSE
+        # ----------------------------------------
+
+        st.write(
+            "### 🔐 Recommended Security Response"
+        )
+
+        if incident["attack_detected"]:
+
+            st.warning(
+                response["action"]
+            )
+
+            st.info(
+                response["message"]
+            )
+
+        else:
+
+            st.success(
+                response["action"]
+            )
+
+            st.info(
+                response["message"]
+            )
+
+    else:
+
+        st.info(
+            "Behavioural profile is being established "
+            "for this user."
+        )
 
 
 # ============================================================
